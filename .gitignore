@@ -1,0 +1,44 @@
+gitignore
+# Бинарные файлы и директории
+/bin/
+/out/
+/dist/
+
+# Файлы, специфичные для Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.pprof
+
+# Исключаем vendor, если используете модули (Go 1.11+)
+/vendor/
+
+# Файлы зависимостей
+go.sum
+
+# Файлы IDE и редакторов
+.idea/
+.vscode/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Файлы операционной системы
+.DS_Store
+Thumbs.db
+
+# Локальные конфигурации
+.env
+*.local
+
+# Тестовые данные и логи
+*.log
+*.tmp
+
+/data/

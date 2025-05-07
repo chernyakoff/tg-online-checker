@@ -1,0 +1,218 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"tg-online-checker/internal/account"
+	"tg-online-checker/internal/model"
+	"tg-online-checker/internal/sink"
+	"time"
+
+	"github.com/gotd/td/telegram"
+	"github.com/gotd/td/tg"
+)
+
+type Worker struct {
+	taskChan <-chan model.Command
+	ctx      context.Context
+	manager  *account.AccountManager
+	wg       *sync.WaitGroup
+	sink     *sink.ResultSink
+}
+
+type Result struct {
+	Username string
+}
+
+// Рабочий-воркер
+/* func (w *Worker) Start(acc *Account) {
+defer acc.Release()
+log.Printf("[%s] worker started", acc.ID)
+for {
+	select {
+	case <-w.ctx.Done():
+		log.Printf("[%s] context canceled", acc.ID)
+		return
+	case task, ok := <-w.taskChan:
+		if !ok {
+			log.Printf("[%s] task channel closed", acc.ID)
+			return
+		}
+		if !acc.IsAlive() {
+			log.Printf("[%s] skipping task, account dead", acc.ID)
+			return
+		}
+
+		// Эмуляция обработки и случайного бана/FLOOD_WAIT
+		log.Printf("[%s] processing task: %s", acc.ID, task.Username)
+		time.Sleep(time.Duration(rand.Intn(500)+100) * time.Millisecond)
+
+		w.sink.Submit(task)
+
+		r := rand.Intn(100)
+		if r < 2 {
+			log.Printf("[%s] got banned!", acc.ID)
+			acc.MarkBanned()
+			return
+		} else if r < 5 {
+			log.Printf("[%s] got FLOOD_WAIT (simulate as banned for 24h)", acc.ID)
+			acc.MarkBanned()
+			return
+		}
+	}
+} */
+
+func (w *Worker) handleTask(api *tg.Client, task model.Command) error {
+	//fmt.Println("HERE ", task.Username)
+	peer, err := api.ContactsResolveUsername(w.ctx, &tg.ContactsResolveUsernameRequest{Username: task.Username})
+	if err != nil {
+		return err
+	}
+	if len(peer.Users) > 0 {
+		tgUser, ok := peer.Users[0].(*tg.User)
+		if !ok {
+			return fmt.Errorf("unexpected type in peer.Users[0]")
+		}
+
+		user := model.NewUser(tgUser)
+		w.sink.Submit(user)
+	}
+
+	log.Printf("Successfully resolved @%s", task.Username)
+	return nil
+}
+
+func (w *Worker) start(acc *account.Account) {
+
+	defer acc.Release()
+
+	client := telegram.NewClient(acc.AppID, acc.AppHash, telegram.Options{
+		SessionStorage: acc.Storage,
+		Resolver:       acc.Resolver,
+	})
+
+	err := client.Run(w.ctx, func(ctx context.Context) error {
+
+		log.Printf("[%s] Starting worker", acc.ID)
+
+		api := client.API()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case task, ok := <-w.taskChan:
+
+				if !ok {
+					log.Printf("[%s] task channel closed, worker exiting", acc.ID)
+					return nil // Завершаем работу воркера
+				}
+				if task.Username == "" {
+					continue // защита от мусора, если вдруг попадет
+				}
+
+				if !acc.IsValid() {
+					continue
+				}
+				if err := w.handleTask(api, task); err != nil {
+
+					floodWait := isFloodWait(err)
+					if floodWait != 0 {
+						acc.SetFloodWait(floodWait)
+					}
+					if isBanned(err) {
+						acc.MarkBanned()
+					}
+					log.Printf("[%s] error handling task: %v", acc.ID, err)
+				}
+			}
+		}
+	})
+
+	if err != nil {
+		log.Printf("[%s] client exited: %v", acc.ID, err)
+	}
+}
+
+// Запускает воркеров и следит за их статусом
+func (w *Worker) Monitor() {
+	defer w.wg.Done()
+	for {
+		select {
+		case <-w.ctx.Done():
+			log.Println("[monitor] context canceled, shutting down")
+			return
+		default:
+			acc := w.manager.GetAvailable()
+			if acc == nil {
+				log.Println("[monitor] no available accounts, retrying in 5s...")
+				select {
+				case <-w.ctx.Done():
+					log.Println("[monitor] context canceled while waiting for accounts")
+					return
+				case <-time.After(5 * time.Second):
+					continue
+				}
+			}
+			workerExited := make(chan struct{})
+			go func() {
+				w.start(acc)
+				workerExited <- struct{}{}
+			}()
+
+			select {
+			case <-w.ctx.Done():
+				log.Println("[monitor] context canceled, stopping worker")
+				return
+			case <-workerExited:
+				log.Printf("[monitor] worker %s exited, trying next account", acc.ID)
+				select {
+				case _, ok := <-w.taskChan:
+					if !ok {
+						log.Println("[monitor] taskChan closed and empty, shutting down monitor")
+						return
+					}
+				default:
+					// канал ещё не пуст — продолжаем
+				}
+			}
+		}
+	}
+}
+
+func isBanned(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "PHONE_NUMBER_BANNED") ||
+		strings.Contains(msg, "USER_DEACTIVATED") ||
+		strings.Contains(msg, "AUTH_KEY_UNREGISTERED")
+}
+
+var floodWaitRegex = regexp.MustCompile(`FLOOD_WAIT_(\d+)`)
+
+func parseFloodWaitSeconds(err error) int {
+	matches := floodWaitRegex.FindStringSubmatch(err.Error())
+	if len(matches) == 2 {
+		seconds, _ := strconv.Atoi(matches[1])
+		return seconds
+	}
+	return 0
+}
+
+func isFloodWait(err error) int {
+	if err == nil {
+		return 0
+	}
+	// Telegram ошибки часто приходят как строки, содержащие FLOOD_WAIT_X
+	if strings.Contains(err.Error(), "FLOOD_WAIT") {
+		return parseFloodWaitSeconds(err)
+	}
+	return 0
+}
