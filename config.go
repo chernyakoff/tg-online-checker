@@ -18,8 +18,9 @@ type DirConfig struct {
 	Sessions string `env:"SESSIONS_DIR"`
 }
 type Config struct {
-	Dir  DirConfig
-	File FileConfig
+	Dir        DirConfig
+	File       FileConfig
+	NumWorkers int `env:"NUM_WORKERS"`
 }
 
 func MustLoadConfig() *Config {

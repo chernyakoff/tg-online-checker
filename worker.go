@@ -30,46 +30,8 @@ type Result struct {
 	Username string
 }
 
-// Рабочий-воркер
-/* func (w *Worker) Start(acc *Account) {
-defer acc.Release()
-log.Printf("[%s] worker started", acc.ID)
-for {
-	select {
-	case <-w.ctx.Done():
-		log.Printf("[%s] context canceled", acc.ID)
-		return
-	case task, ok := <-w.taskChan:
-		if !ok {
-			log.Printf("[%s] task channel closed", acc.ID)
-			return
-		}
-		if !acc.IsAlive() {
-			log.Printf("[%s] skipping task, account dead", acc.ID)
-			return
-		}
-
-		// Эмуляция обработки и случайного бана/FLOOD_WAIT
-		log.Printf("[%s] processing task: %s", acc.ID, task.Username)
-		time.Sleep(time.Duration(rand.Intn(500)+100) * time.Millisecond)
-
-		w.sink.Submit(task)
-
-		r := rand.Intn(100)
-		if r < 2 {
-			log.Printf("[%s] got banned!", acc.ID)
-			acc.MarkBanned()
-			return
-		} else if r < 5 {
-			log.Printf("[%s] got FLOOD_WAIT (simulate as banned for 24h)", acc.ID)
-			acc.MarkBanned()
-			return
-		}
-	}
-} */
-
 func (w *Worker) handleTask(api *tg.Client, task model.Command) error {
-	//fmt.Println("HERE ", task.Username)
+
 	peer, err := api.ContactsResolveUsername(w.ctx, &tg.ContactsResolveUsernameRequest{Username: task.Username})
 	if err != nil {
 		return err

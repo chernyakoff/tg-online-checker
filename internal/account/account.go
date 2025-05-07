@@ -122,7 +122,13 @@ func (a *Account) LoadState() error {
 	a.IsBanned = state.IsBanned
 
 	a.LastUsed = state.LastUsed
-	a.FloodWait = state.FloodWait
+
+	if state.FloodWait > 0 && time.Now().Unix() >= state.FloodWait {
+		a.FloodWait = 0
+	} else {
+		a.FloodWait = state.FloodWait
+	}
+
 	a.lock.Unlock()
 	return nil
 }

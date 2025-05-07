@@ -35,7 +35,7 @@ func GetUsers(filePath string) ([]string, error) {
 	return items, nil
 }
 
-// Мок-генератор задач (вместо RabbitMQ)
+// генератор задач (вместо RabbitMQ)
 func TaskProducer(ctx context.Context, usernames []string, taskChan chan<- model.Command, doneProducing chan<- struct{}) {
 	defer close(taskChan)
 	defer close(doneProducing)
