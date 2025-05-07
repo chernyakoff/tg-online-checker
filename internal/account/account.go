@@ -2,6 +2,7 @@ package account
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -24,7 +25,6 @@ type Account struct {
 	Proxy       *url.URL
 	Storage     *session.StorageMemory
 	Resolver    dcs.Resolver
-	UsedToday   int
 	IsBanned    bool
 	LastUsed    int64
 	lock        sync.Mutex
@@ -39,7 +39,6 @@ type accountState struct {
 	AppID     int    `json:"app_id"`
 	AppHash   string `json:"app_hash"`
 	IsBanned  bool   `json:"is_banned"`
-	UsedToday int    `json:"used_today"`
 	LastUsed  int64  `json:"last_used"`
 	FloodWait int64  `json:"flood_wait"`
 }
@@ -53,7 +52,6 @@ func NewAccount(path string, proxy *url.URL) *Account {
 	a := &Account{
 		SessionPath: path,
 		Proxy:       proxy,
-		UsedToday:   0,
 		LastUsed:    time.Now().Unix(),
 	}
 
@@ -78,27 +76,22 @@ func (a *Account) TryLoadAppCredsFromJson() {
 }
 
 func (a *Account) IsValid() bool {
-	return !a.IsBanned && a.UsedToday < 200 && a.FloodWait == 0
-}
 
-func (a *Account) MarkBanned() {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-	a.IsBanned = true
+	return !a.IsBanned && a.FloodWait == 0
 }
 
 func (a *Account) SetFloodWait(seconds int) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 	now := time.Now().Unix()
+	fmt.Printf("ПОСТАВИЛИ FLOOD WAIT [%s]: %d\n", a.ID, now+int64(seconds))
 	a.FloodWait = now + int64(seconds)
 }
 
-func (a *Account) IncrementUsage() {
+func (a *Account) MarkBanned() {
 	a.lock.Lock()
 	defer a.lock.Unlock()
-	a.UsedToday++
-	a.LastUsed = time.Now().Unix()
+	a.IsBanned = true
 }
 
 func (a *Account) Release() {
@@ -128,7 +121,6 @@ func (a *Account) LoadState() error {
 	a.AppID = state.AppID
 	a.IsBanned = state.IsBanned
 
-	a.UsedToday = state.UsedToday
 	a.LastUsed = state.LastUsed
 	a.FloodWait = state.FloodWait
 	a.lock.Unlock()
@@ -138,12 +130,10 @@ func (a *Account) LoadState() error {
 func (a *Account) SaveState() error {
 	a.lock.Lock()
 	state := accountState{
-		ID:       a.ID,
-		AppID:    a.AppID,
-		AppHash:  a.AppHash,
-		IsBanned: a.IsBanned,
-
-		UsedToday: a.UsedToday,
+		ID:        a.ID,
+		AppID:     a.AppID,
+		AppHash:   a.AppHash,
+		IsBanned:  a.IsBanned,
 		LastUsed:  a.LastUsed,
 		FloodWait: a.FloodWait,
 	}

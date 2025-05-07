@@ -36,8 +36,9 @@ func GetUsers(filePath string) ([]string, error) {
 }
 
 // Мок-генератор задач (вместо RabbitMQ)
-func TaskProducer(ctx context.Context, usernames []string, taskChan chan<- model.Command) {
+func TaskProducer(ctx context.Context, usernames []string, taskChan chan<- model.Command, doneProducing chan<- struct{}) {
 	defer close(taskChan)
+	defer close(doneProducing)
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 	for _, username := range usernames {

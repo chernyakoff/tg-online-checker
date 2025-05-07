@@ -43,13 +43,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("cant create account manager: %v", err)
 	}
+	doneProducing := make(chan struct{})
 
 	worker := Worker{
-		ctx:      ctx,
-		wg:       &wg,
-		manager:  manager,
-		taskChan: taskChan,
-		sink:     resultSink,
+		ctx:           ctx,
+		wg:            &wg,
+		manager:       manager,
+		taskChan:      taskChan,
+		sink:          resultSink,
+		doneProducing: doneProducing,
 	}
 
 	// Запускаем 5 параллельных MonitorWorker
@@ -61,7 +63,7 @@ func main() {
 	// Запускаем генератор задач
 	go func() {
 
-		TaskProducer(ctx, users, taskChan)
+		TaskProducer(ctx, users, taskChan, doneProducing)
 		// После отправки всех задач отменяем контекст
 		log.Println("[main] all tasks produced, canceling context")
 

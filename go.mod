@@ -6,6 +6,7 @@ require (
 	github.com/gotd/td v0.123.0
 	github.com/ilyakaznacheev/cleanenv v1.5.0
 	github.com/pkg/errors v0.9.1
+	github.com/sanity-io/litter v1.5.8
 	golang.org/x/net v0.40.0
 	modernc.org/sqlite v1.37.0
 )

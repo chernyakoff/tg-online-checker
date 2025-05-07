@@ -128,7 +128,7 @@ func (am *AccountManager) GetAvailable() *Account {
 	for _, acc := range am.accounts {
 		acc.lock.Lock()
 		if acc.IsValid() && !acc.InUse {
-			acc.UsedToday++
+
 			acc.LastUsed = time.Now().Unix()
 			acc.InUse = true // 👈 помечаем как занятый
 			acc.lock.Unlock()

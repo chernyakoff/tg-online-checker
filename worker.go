@@ -18,11 +18,12 @@ import (
 )
 
 type Worker struct {
-	taskChan <-chan model.Command
-	ctx      context.Context
-	manager  *account.AccountManager
-	wg       *sync.WaitGroup
-	sink     *sink.ResultSink
+	taskChan      <-chan model.Command
+	ctx           context.Context
+	manager       *account.AccountManager
+	wg            *sync.WaitGroup
+	sink          *sink.ResultSink
+	doneProducing <-chan struct{}
 }
 
 type Result struct {
@@ -117,11 +118,14 @@ func (w *Worker) start(acc *account.Account) {
 				}
 
 				if !acc.IsValid() {
-					continue
+
+					return nil
 				}
+
 				if err := w.handleTask(api, task); err != nil {
 
 					floodWait := isFloodWait(err)
+					fmt.Println("FW ", floodWait)
 					if floodWait != 0 {
 						acc.SetFloodWait(floodWait)
 					}
@@ -171,17 +175,28 @@ func (w *Worker) Monitor() {
 				return
 			case <-workerExited:
 				log.Printf("[monitor] worker %s exited, trying next account", acc.ID)
+
+				// Проверяем, завершился ли producer и задачи тоже закончились
 				select {
-				case _, ok := <-w.taskChan:
-					if !ok {
-						log.Println("[monitor] taskChan closed and empty, shutting down monitor")
+				case <-w.doneProducing:
+					if isChannelClosedAndEmpty(w.taskChan) {
+						log.Println("[monitor] all tasks processed, exiting monitor")
 						return
 					}
 				default:
-					// канал ещё не пуст — продолжаем
+					// producer еще не завершил работу — продолжаем
 				}
 			}
 		}
+	}
+}
+
+func isChannelClosedAndEmpty(ch <-chan model.Command) bool {
+	select {
+	case _, ok := <-ch:
+		return !ok
+	default:
+		return false
 	}
 }
 
@@ -195,7 +210,7 @@ func isBanned(err error) bool {
 		strings.Contains(msg, "AUTH_KEY_UNREGISTERED")
 }
 
-var floodWaitRegex = regexp.MustCompile(`FLOOD_WAIT_(\d+)`)
+var floodWaitRegex = regexp.MustCompile(`FLOOD_WAIT \((\d+)\)`)
 
 func parseFloodWaitSeconds(err error) int {
 	matches := floodWaitRegex.FindStringSubmatch(err.Error())
